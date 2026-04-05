@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InvoiceToSheet â Convert PDF Invoices to Excel Instantly</title>
+<meta name="description" content="Upload a PDF invoice and download a clean Excel spreadsheet in seconds. First 3 invoices free. No account needed.">
+<style>
+  :root {
+    --navy:   #1A1A2E;
+    --blue:   #0F3460;
+    --accent: #E94560;
+    --light:  #EEF2FF;
+    --border: #D1D9FF;
+    --text:   #1A1A2E;
+    --muted:  #6B7280;
+    --white:  #FFFFFF;
+    --green:  #10B981;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #F8FAFF; color: var(--text); min-height: 100vh; }
+
+  /* ââ Nav ââ */
+  nav { background: var(--navy); padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
+  .logo { color: var(--white); font-size: 1.25rem; font-weight: 700; letter-spacing: -0.5px; }
+  .logo span { color: var(--accent); }
+  .nav-badge { background: rgba(255,255,255,0.1); color: var(--white); font-size: 0.75rem; padding: 4px 10px; border-radius: 20px; }
+
+  /* ââ Hero ââ */
+  .hero { text-align: center; padding: 56px 20px 32px; }
+  .hero h1 { font-size: 2.4rem; font-weight: 800; color: var(--navy); line-height: 1.2; max-width: 700px; margin: 0 auto 16px; }
+  .hero h1 span { color: var(--accent); }
+  .hero p { font-size: 1.1rem; color: var(--muted); max-width: 520px; margin: 0 auto 12px; }
+  .free-badge { display: inline-block; background: var(--light); color: var(--blue); font-size: 0.85rem; font-weight: 600; padding: 6px 16px; border-radius: 20px; border: 1px solid var(--border); }
+
+  /* ââ Upload zone ââ */
+  .container { max-width: 780px; margin: 0 auto; padding: 0 20px 60px; }
+  .upload-zone {
+    border: 2.5px dashed var(--border);
+    border-radius: var(--radius);
+    background: var(--white);
+    padding: 52px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+  .upload-zone:hover, .upload-zone.drag-over { border-color: var(--accent); background: #FFF5F7; }
+  .upload-icon { font-size: 3rem; margin-bottom: 16px; }
+  .upload-zone h2 { font-size: 1.2rem; color: var(--navy); margin-bottom: 8px; }
+  .upload-zone p { color: var(--muted); font-size: 0.9rem; margin-bottom: 20px; }
+  #fileInput { display: none; }
+  .btn-upload {
+    background: var(--accent); color: var(--white); border: none;
+    padding: 12px 28px; border-radius: var(--radius); font-size: 1rem;
+    font-weight: 600; cursor: pointer; transition: background 0.2s;
+  }
+  .btn-upload:hover { background: #c73652; }
+
+  /* ââ Usage bar ââ */
+  .usage-bar { margin: 16px 0; background: var(--light); border-radius: var(--radius); padding: 12px 16px; display: flex; align-items: center; gap: 12px; font-size: 0.85rem; }
+  .usage-track { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .usage-fill { height: 100%; border-radius: 3px; background: var(--green); transition: width 0.4s; }
+  .usage-fill.warn { background: #F59E0B; }
+  .usage-fill.full { background: var(--accent); }
+  .usage-text { color: var(--muted); white-space: nowrap; }
+
+  /* ââ File list ââ */
+  .file-list { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .file-item {
+    background: var(--white); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 12px 16px; display: flex; align-items: center; gap: 12px; font-size: 0.9rem;
+  }
+  .file-icon { font-size: 1.3rem; }
+  .file-name { flex: 1; font-weight: 500; }
+  .file-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1.1rem; padding: 2px 6px; border-radius: 4px; }
+  .file-remove:hover { background: var(--light); color: var(--accent); }
+
+  /* ââ Action buttons ââ */
+  .actions { margin-top: 20px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn-primary {
+    background: var(--navy); color: var(--white); border: none;
+    padding: 13px 28px; border-radius: var(--radius); font-size: 1rem;
+    font-weight: 600; cursor: pointer; transition: background 0.2s; flex: 1;
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--blue); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary {
+    background: var(--white); color: var(--navy); border: 2px solid var(--border);
+    padding: 13px 28px; border-radius: var(--radius); font-size: 1rem;
+    font-weight: 600; cursor: pointer; transition: all 0.2s;
+  }
+  .btn-secondary:hover { border-color: var(--navy); }
+
+  /* ââ Status ââ */
+  .status { margin-top: 16px; padding: 14px 16px; border-radius: var(--radius); font-size: 0.9rem; display: none; }
+  .status.loading { background: var(--light); color: var(--blue); display: flex; align-items: center; gap: 10px; }
+  .status.success { background: #ECFDF5; color: #065F46; display: block; }
+  .status.error   { background: #FEF2F2; color: #991B1B; display: block; }
+  .spinner { width: 18px; height: 18px; border: 2.5px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ââ Preview table ââ */
+  .preview { margin-top: 28px; }
+  .preview h3 { font-size: 1rem; font-weight: 700; color: var(--navy); margin-bottom: 12px; }
+  .invoice-card {
+    background: var(--white); border: 1px solid var(--border); border-radius: var(--radius);
+    margin-bottom: 16px; overflow: hidden;
+  }
+  .invoice-card-header {
+    background: var(--navy); color: var(--white); padding: 10px 16px;
+    font-size: 0.85rem; font-weight: 600; display: flex; justify-content: space-between;
+  }
+  .fields-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+  .field-row { padding: 9px 16px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
+  .field-row:nth-child(odd) { background: var(--light); }
+  .field-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .field-value { font-size: 0.9rem; font-weight: 500; color: var(--navy); }
+  .items-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  .items-table th { background: var(--blue); color: var(--white); padding: 8px 12px; text-align: left; font-weight: 600; }
+  .items-table th:last-child, .items-table td:last-child { text-align: right; }
+  .items-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  .items-table tr:last-child td { border-bottom: none; }
+  .totals { padding: 12px 16px; background: var(--light); display: flex; justify-content: flex-end; gap: 32px; font-size: 0.9rem; }
+  .total-item { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+  .total-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; }
+  .total-value { font-weight: 700; color: var(--navy); }
+  .total-item.grand .total-value { font-size: 1.1rem; color: var(--accent); }
+
+  /* ââ Download button ââ */
+  .btn-download {
+    display: block; width: 100%; margin-top: 20px;
+    background: var(--green); color: var(--white); border: none;
+    padding: 15px; border-radius: var(--radius); font-size: 1.05rem;
+    font-weight: 700; cursor: pointer; transition: background 0.2s; text-align: center;
+  }
+  .btn-download:hover { background: #059669; }
+
+  /* ââ How it works ââ */
+  .how { background: var(--white); border-top: 1px solid var(--border); padding: 48px 20px; margin-top: 8px; }
+  .how-inner { max-width: 780px; margin: 0 auto; text-align: center; }
+  .how h2 { font-size: 1.5rem; font-weight: 800; color: var(--navy); margin-bottom: 32px; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  .step { padding: 24px 16px; }
+  .step-num { width: 40px; height: 40px; border-radius: 50%; background: var(--navy); color: var(--white); display: flex; align-items: center; justify-content: center; font-weight: 800; margin: 0 auto 12px; }
+  .step h3 { font-size: 0.95rem; font-weight: 700; color: var(--navy); margin-bottom: 6px; }
+  .step p { font-size: 0.85rem; color: var(--muted); }
+
+  /* ââ Pricing strip ââ */
+  .pricing { background: var(--navy); color: var(--white); padding: 32px 20px; text-align: center; }
+  .pricing-inner { max-width: 600px; margin: 0 auto; }
+  .pricing h2 { font-size: 1.3rem; font-weight: 700; margin-bottom: 20px; }
+  .pricing-cards { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+  .pricing-card { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: var(--radius); padding: 20px 24px; min-width: 160px; text-align: center; }
+  .pricing-card.featured { border-color: var(--accent); background: rgba(233,69,96,0.12); }
+  .price-amount { font-size: 1.8rem; font-weight: 800; color: var(--white); }
+  .price-period { font-size: 0.75rem; color: rgba(255,255,255,0.6); margin-bottom: 8px; }
+  .price-desc { font-size: 0.82rem; color: rgba(255,255,255,0.75); }
+
+  /* ââ Footer ââ */
+  footer { text-align: center; padding: 20px; font-size: 0.8rem; color: var(--muted); }
+
+  @media(max-width:600px) {
+    .hero h1 { font-size: 1.7rem; }
+    .steps { grid-template-columns: 1fr; }
+    .fields-grid { grid-template-columns: 1fr; }
+    .pricing-cards { flex-direction: column; align-items: center; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">Invoice<span>ToSheet</span></div>
+  <div class="nav-badge">3 free extractions Â· No account needed</div>
+</nav>
+
+<div class="hero">
+  <h1>Turn PDF invoices into<br><span>clean Excel spreadsheets</span></h1>
+  <p>Upload a PDF invoice. Download a structured Excel file. No manual re-keying. No templates to configure.</p>
+  <div class="free-badge">â First 3 invoices free â no account, no subscription</div>
+</div>
+
+<div class="container">
+
+  <!-- Usage bar -->
+  <div class="usage-bar">
+    <span>Free trial:</span>
+    <div class="usage-track"><div class="usage-fill" id="usageFill" style="width:0%"></div></div>
+    <span class="usage-text" id="usageText">0 / 3 free extractions used</span>
+  </div>
+
+  <!-- Upload zone -->
+  <div class="upload-zone" id="uploadZone">
+    <div class="upload-icon">ð</div>
+    <h2>Drop your PDF invoices here</h2>
+    <p>Or click to browse â up to 10 PDFs at once, max 10MB each</p>
+    <button class="btn-upload" onclick="document.getElementById('fileInput').click()">Choose PDF files</button>
+    <input type="file" id="fileInput" accept=".pdf" multiple>
+  </div>
+
+  <!-- File list -->
+  <div class="file-list" id="fileList"></div>
+
+  <!-- Action buttons -->
+  <div class="actions" id="actions" style="display:none">
+    <button class="btn-primary" id="btnExtract">ð Preview extracted data</button>
+    <button class="btn-secondary" id="btnClear">Clear</button>
+  </div>
+
+  <!-- Status -->
+  <div class="status" id="status"></div>
+
+  <!-- Preview area -->
+  <div class="preview" id="preview"></div>
+
+</div>
+
+<!-- How it works -->
+<div class="how">
+  <div class="how-inner">
+    <h2>How it works</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h3>Upload your PDF</h3>
+        <p>Drop one or several PDF invoices. Works with standard digital invoices.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h3>We extract the data</h3>
+        <p>AI reads vendor name, date, line items, totals, and more from each invoice.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h3>Download Excel</h3>
+        <p>Get a clean, formatted .xlsx file ready for your accounting software.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Pricing -->
+<div class="pricing">
+  <div class="pricing-inner">
+    <h2>Simple, honest pricing</h2>
+    <div class="pricing-cards">
+      <div class="pricing-card">
+        <div class="price-amount">Free</div>
+        <div class="price-period">3 extractions</div>
+        <div class="price-desc">One-time trial<br>No account needed</div>
+      </div>
+      <div class="pricing-card featured">
+        <div class="price-amount">$0.20</div>
+        <div class="price-period">per invoice</div>
+        <div class="price-desc">Pay only when you use it<br>No subscription, no limits</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  Â© 2026 InvoiceToSheet.com Â· <a href="mailto:hello@invoicetosheet.com" style="color:inherit">hello@invoicetosheet.com</a>
+</footer>
+
+<script>
+const STORAGE_KEY = 'its_trial';
+const FREE_LIMIT  = 3;
+
+// ââ Usage tracking (lifetime one-time trial â no monthly reset) âââââââââââ
+function getUsage() {
+  try {
+    const count = parseInt(localStorage.getItem(STORAGE_KEY) || '0', 10);
+    return { count: isNaN(count) ? 0 : count };
+  } catch { return { count: 0 }; }
+}
+function saveUsage(u) {
+  try { localStorage.setItem(STORAGE_KEY, String(u.count)); } catch {}
+}
+function incrementUsage(n) {
+  const u = getUsage(); u.count += n; saveUsage(u);
+}
+function renderUsage() {
+  const u = getUsage();
+  const remaining = Math.max(0, FREE_LIMIT - u.count);
+  const pct = Math.min(100, (u.count / FREE_LIMIT) * 100);
+  const fill = document.getElementById('usageFill');
+  fill.style.width = pct + '%';
+  fill.className = 'usage-fill' + (pct >= 100 ? ' full' : pct >= 67 ? ' warn' : '');
+  document.getElementById('usageText').textContent =
+    u.count >= FREE_LIMIT
+      ? `Free trial used Â· $0.20/invoice`
+      : `${remaining} free extraction${remaining !== 1 ? 's' : ''} remaining`;
+}
+
+// ââ Files state âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+let selectedFiles = [];
+
+function renderFiles() {
+  const list = document.getElementById('fileList');
+  const actions = document.getElementById('actions');
+  list.innerHTML = '';
+  selectedFiles.forEach((f, i) => {
+    const div = document.createElement('div');
+    div.className = 'file-item';
+    div.innerHTML = `<span class="file-icon">ð</span>
+      <span class="file-name">${f.name}</span>
+      <span style="color:var(--muted);font-size:0.8rem">${(f.size/1024).toFixed(0)} KB</span>
+      <button class="file-remove" onclick="removeFile(${i})">â</button>`;
+    list.appendChild(div);
+  });
+  actions.style.display = selectedFiles.length ? 'flex' : 'none';
+}
+function removeFile(i) {
+  selectedFiles.splice(i, 1);
+  renderFiles();
+  document.getElementById('preview').innerHTML = '';
+  setStatus('', '');
+}
+
+// ââ File input ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+document.getElementById('fileInput').addEventListener('change', e => {
+  addFiles(Array.from(e.target.files));
+  e.target.value = '';
+});
+
+const zone = document.getElementById('uploadZone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+zone.addEventListener('drop', e => {
+  e.preventDefault(); zone.classList.remove('drag-over');
+  addFiles(Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.pdf')));
+});
+
+function addFiles(files) {
+  const added = files.filter(f => !selectedFiles.find(x => x.name === f.name));
+  selectedFiles = [...selectedFiles, ...added].slice(0, 10);
+  renderFiles();
+  document.getElementById('preview').innerHTML = '';
+  setStatus('', '');
+}
+
+document.getElementById('btnClear').onclick = () => {
+  selectedFiles = [];
+  renderFiles();
+  document.getElementById('preview').innerHTML = '';
+  setStatus('', '');
+};
+
+// ââ Status helper âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+function setStatus(type, msg) {
+  const s = document.getElementById('status');
+  s.className = 'status ' + type;
+  if (!type) { s.style.display = 'none'; return; }
+  s.style.display = type === 'loading' ? 'flex' : 'block';
+  if (type === 'loading') {
+    s.innerHTML = `<div class="spinner"></div><span>${msg}</span>`;
+  } else {
+    s.textContent = msg;
+  }
+}
+
+// ââ Extract & preview âââââââââââââââââââââââââââââââââââââââââââââââââââââ
+document.getElementById('btnExtract').onclick = async () => {
+  if (!selectedFiles.length) return;
+  const usage = getUsage();
+  const remaining = Math.max(0, FREE_LIMIT - usage.count);
+  if (remaining <= 0) {
+    setStatus('error', 'â  Your 3 free extractions have been used. Each additional invoice is $0.20 â pay-as-you-go coming soon.');
+    return;
+  }
+  const toProcess = selectedFiles.slice(0, remaining);
+  if (toProcess.length < selectedFiles.length) {
+    setStatus('error', `Only ${remaining} free extraction${remaining !== 1 ? 's' : ''} left â processing first ${remaining} file${remaining !== 1 ? 's' : ''}.`);
+  } else {
+    setStatus('loading', `Extracting data from ${toProcess.length} invoice${toProcess.length > 1 ? 's' : ''}â¦`);
+  }
+
+  const fd = new FormData();
+  toProcess.forEach(f => fd.append('files', f));
+
+  try {
+    const res = await fetch('/extract', { method: 'POST', body: fd });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Extraction failed');
+    }
+    const data = await res.json();
+    incrementUsage(toProcess.length);
+    renderUsage();
+    renderPreview(data.invoices, toProcess);
+    setStatus('success', `â Extracted data from ${data.invoices.length} invoice${data.invoices.length > 1 ? 's' : ''}. Review below, then download your Excel file.`);
+  } catch (e) {
+    setStatus('error', 'â ' + e.message);
+  }
+};
+
+// ââ Render preview ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+function fmt(v) {
+  if (v === null || v === undefined) return 'â';
+  if (typeof v === 'number') return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return v;
+}
+
+function renderPreview(invoices, files) {
+  const container = document.getElementById('preview');
+  container.innerHTML = '<h3>Extracted data preview</h3>';
+
+  invoices.forEach((inv, i) => {
+    const card = document.createElement('div');
+    card.className = 'invoice-card';
+    const currency = inv.currency || '';
+
+    const items = (inv.line_items || []).map(item => `
+      <tr>
+        <td>${item.description || 'â'}</td>
+        <td style="text-align:center">${fmt(item.quantity)}</td>
+        <td style="text-align:right">${currency} ${fmt(item.unit_price)}</td>
+        <td style="text-align:right">${currency} ${fmt(item.amount)}</td>
+      </tr>`).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:12px">No line items found</td></tr>';
+
+    card.innerHTML = `
+      <div class="invoice-card-header">
+        <span>ð ${inv.filename || files[i]?.name || 'Invoice ' + (i+1)}</span>
+        <span>${inv.vendor_name || 'Unknown vendor'}</span>
+      </div>
+      <div class="fields-grid">
+        ${[
+          ['Vendor',          inv.vendor_name],
+          ['Invoice Number',  inv.invoice_number],
+          ['Invoice Date',    inv.invoice_date],
+          ['Due Date',        inv.due_date],
+          ['Currency',        inv.currency],
+          ['Vendor Address',  inv.vendor_address],
+        ].map(([l, v]) => `
+          <div class="field-row">
+            <div class="field-label">${l}</div>
+            <div class="field-value">${v || 'â'}</div>
+          </div>`).join('')}
+      </div>
+      <table class="items-table">
+        <thead><tr><th>Description</th><th style="text-align:center">Qty</th><th style="text-align:right">Unit Price</th><th style="text-align:right">Amount</th></tr></thead>
+        <tbody>${items}</tbody>
+      </table>
+      <div class="totals">
+        ${inv.subtotal != null ? `<div class="total-item"><div class="total-label">Subtotal</div><div class="total-value">${currency} ${fmt(inv.subtotal)}</div></div>` : ''}
+        ${inv.tax      != null ? `<div class="total-item"><div class="total-label">Tax</div><div class="total-value">${currency} ${fmt(inv.tax)}</div></div>` : ''}
+        ${inv.total    != null ? `<div class="total-item grand"><div class="total-label">Total</div><div class="total-value">${currency} ${fmt(inv.total)}</div></div>` : ''}
+      </div>`;
+    container.appendChild(card);
+  });
+
+  // Download button
+  const dlBtn = document.createElement('button');
+  dlBtn.className = 'btn-download';
+  dlBtn.textContent = 'â¬ Download Excel file';
+  dlBtn.onclick = () => downloadExcel(files.slice(0, invoices.length));
+  container.appendChild(dlBtn);
+}
+
+// ââ Download Excel ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+async function downloadExcel(files) {
+  const btn = document.querySelector('.btn-download');
+  const orig = btn.textContent;
+  btn.textContent = 'Generating Excelâ¦';
+  btn.disabled = true;
+
+  try {
+    const fd = new FormData();
+    files.forEach(f => fd.append('files', f));
+    const res = await fetch('/download', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error('Download failed');
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = files.length === 1
+      ? files[0].name.replace('.pdf', '_extracted.xlsx')
+      : 'invoices_extracted.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch(e) {
+    setStatus('error', 'â Download failed: ' + e.message);
+  } finally {
+    btn.textContent = orig;
+    btn.disabled = false;
+  }
+}
+
+// ââ Init ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+renderUsage();
+</script>
+</body>
+</html>
