@@ -15,18 +15,30 @@ from dotenv import load_dotenv
 load_dotenv()
 app = FastAPI(title="InvoiceToSheet")
 
+# -- PDF text extraction ----------------------------------------------------
 def extract_pdf_text(pdf_bytes: bytes) -> str:
     text_parts = []
-    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-        for page in pdf.pages:
-            t = page.extract_text()
-            if t:
-                text_parts.append(t)
+    try:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            for page in pdf.pages:
+                t = page.extract_text()
+                if t:
+                    text_parts.append(t)
+    except Exception:
+        # Fallback: retry with pdfminer directly (handles malformed metadata)
+        try:
+            import pdfminer.high_level as pml
+            text = pml.extract_text(io.BytesIO(pdf_bytes))
+            if text and text.strip():
+                return text
+        except Exception:
+            pass
     return "\n".join(text_parts)
 
+# -- Claude extraction ------------------------------------------------------
 SYSTEM_PROMPT = """You are an invoice data extraction specialist.
 Extract structured data from the invoice text provided.
-Return ONLY a valid JSON object — no markdown, no explanation — with this exact schema:
+Return ONLY a valid JSON object -- no markdown, no explanation -- with this exact schema:
 
 {
   "vendor_name": "string or null",
@@ -60,6 +72,7 @@ def extract_invoice_data(text: str) -> dict:
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail="API key not configured")
+
     client = anthropic.Anthropic(api_key=api_key)
     message = client.messages.create(
         model="claude-haiku-4-5-20251001",
@@ -68,14 +81,18 @@ def extract_invoice_data(text: str) -> dict:
         system=SYSTEM_PROMPT,
     )
     raw = message.content[0].text.strip()
+    # Strip markdown fences if present
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
     return json.loads(raw)
 
+# -- Excel builder ----------------------------------------------------------
 def build_excel(invoices: list[dict]) -> bytes:
     wb = openpyxl.Workbook()
+
     thin = Side(style="thin", color="CCCCCC")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
     header_font  = Font(name="Arial", bold=True, size=10, color="FFFFFF")
     header_fill  = PatternFill("solid", fgColor="1A1A2E")
     section_fill = PatternFill("solid", fgColor="EEF2FF")
@@ -100,78 +117,104 @@ def build_excel(invoices: list[dict]) -> bytes:
         ws.column_dimensions["C"].width = 14
         ws.column_dimensions["D"].width = 14
         ws.column_dimensions["E"].width = 14
+
         r = 1
+        # -- Title --
         ws.merge_cells(f"A{r}:E{r}")
-        title = ws.cell(row=r, column=1, value="INVOICE DATA — InvoiceToSheet.com")
+        title = ws.cell(row=r, column=1, value="INVOICE DATA -- InvoiceToSheet.com")
         title.font = Font(name="Arial", bold=True, size=12, color="FFFFFF")
         title.fill = header_fill
         title.alignment = Alignment(horizontal="center", vertical="center")
         ws.row_dimensions[r].height = 28
         r += 1
+
+        # -- Header fields --
         fields = [
-            ("Vendor / Supplier", inv.get("vendor_name")),
-            ("Vendor Address",    inv.get("vendor_address")),
-            ("Invoice Number",    inv.get("invoice_number")),
-            ("Invoice Date",      inv.get("invoice_date")),
-            ("Due Date",          inv.get("due_date")),
-            ("Currency",          inv.get("currency")),
+            ("Vendor / Supplier",  inv.get("vendor_name")),
+            ("Vendor Address",     inv.get("vendor_address")),
+            ("Invoice Number",     inv.get("invoice_number")),
+            ("Invoice Date",       inv.get("invoice_date")),
+            ("Due Date",           inv.get("due_date")),
+            ("Currency",           inv.get("currency")),
         ]
         for label, value in fields:
             ws.merge_cells(f"B{r}:E{r}")
             hcell(ws, r, 1, label, fill=section_fill, font=bold_font)
-            hcell(ws, r, 2, value if value else "—")
+            hcell(ws, r, 2, value if value else "-")
             ws.row_dimensions[r].height = 18
             r += 1
-        r += 1
+
+        r += 1  # spacer
+
+        # -- Line items header --
         ws.row_dimensions[r].height = 20
         for col, h in enumerate(["Description", "Qty", "Unit Price", "Amount"], start=2):
-            hcell(ws, r, col, h, fill=PatternFill("solid", fgColor="0F3460"), font=header_font, align="center")
+            hcell(ws, r, col, h, fill=PatternFill("solid", fgColor="0F3460"),
+                  font=header_font, align="center")
         r += 1
+
         items = inv.get("line_items") or []
         for item in items:
             ws.row_dimensions[r].height = 18
-            hcell(ws, r, 2, item.get("description") or "—")
-            hcell(ws, r, 3, item.get("quantity"), align="center")
+            hcell(ws, r, 2, item.get("description") or "-")
+            hcell(ws, r, 3, item.get("quantity"),  align="center")
             hcell(ws, r, 4, item.get("unit_price"), align="right")
-            hcell(ws, r, 5, item.get("amount"), align="right")
+            hcell(ws, r, 5, item.get("amount"),    align="right")
             for col in [4, 5]:
                 cell = ws.cell(row=r, column=col)
                 if isinstance(cell.value, (int, float)):
                     cell.number_format = '#,##0.00'
             r += 1
+
         if not items:
             ws.merge_cells(f"B{r}:E{r}")
             hcell(ws, r, 2, "No line items found")
             r += 1
-        r += 1
-        for label, value in [("Subtotal", inv.get("subtotal")), ("Tax", inv.get("tax")), ("TOTAL", inv.get("total"))]:
+
+        r += 1  # spacer
+
+        # -- Totals --
+        for label, value in [
+            ("Subtotal", inv.get("subtotal")),
+            ("Tax",      inv.get("tax")),
+            ("TOTAL",    inv.get("total")),
+        ]:
             is_total = label == "TOTAL"
             ws.merge_cells(f"B{r}:D{r}")
-            hcell(ws, r, 2, label, fill=PatternFill("solid", fgColor="1A1A2E") if is_total else section_fill,
-                  font=Font(name="Arial", bold=True, size=9, color="FFFFFF" if is_total else "000000"), align="right")
+            hcell(ws, r, 2, label,
+                  fill=PatternFill("solid", fgColor="1A1A2E") if is_total else section_fill,
+                  font=Font(name="Arial", bold=True, size=9,
+                            color="FFFFFF" if is_total else "000000"),
+                  align="right")
             c = ws.cell(row=r, column=5, value=value)
             c.border = border
-            c.font = Font(name="Arial", bold=is_total, size=9, color="FFFFFF" if is_total else "000000")
+            c.font = Font(name="Arial", bold=is_total, size=9,
+                          color="FFFFFF" if is_total else "000000")
             c.fill = PatternFill("solid", fgColor="1A1A2E") if is_total else section_fill
             c.alignment = Alignment(horizontal="right", vertical="center")
             if isinstance(value, (int, float)):
                 c.number_format = '#,##0.00'
             ws.row_dimensions[r].height = 20
             r += 1
+
+        # -- Notes --
         if inv.get("notes"):
             r += 1
             hcell(ws, r, 1, "Notes", fill=section_fill, font=bold_font)
             ws.merge_cells(f"B{r}:E{r}")
             hcell(ws, r, 2, inv["notes"])
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
     return buf.read()
 
+# -- Routes -----------------------------------------------------------------
 @app.post("/extract")
 async def extract(files: list[UploadFile] = File(...)):
     if len(files) > 10:
         raise HTTPException(status_code=400, detail="Maximum 10 files per request")
+
     results = []
     for f in files:
         if not f.filename.lower().endswith(".pdf"):
@@ -179,9 +222,12 @@ async def extract(files: list[UploadFile] = File(...)):
         pdf_bytes = await f.read()
         if len(pdf_bytes) > 10 * 1024 * 1024:
             raise HTTPException(status_code=400, detail=f"{f.filename} exceeds 10MB limit")
+
         text = extract_pdf_text(pdf_bytes)
         if not text.strip():
-            raise HTTPException(status_code=422, detail=f"{f.filename} appears to be a scanned image PDF with no extractable text")
+            raise HTTPException(status_code=422,
+                detail=f"{f.filename} appears to be a scanned image PDF with no extractable text")
+
         try:
             data = extract_invoice_data(text)
         except anthropic.BadRequestError as e:
@@ -196,12 +242,15 @@ async def extract(files: list[UploadFile] = File(...)):
             raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
         data["filename"] = f.filename
         results.append(data)
+
     return JSONResponse(content={"invoices": results})
+
 
 @app.post("/download")
 async def download(files: list[UploadFile] = File(...)):
     if len(files) > 10:
         raise HTTPException(status_code=400, detail="Maximum 10 files per request")
+
     invoices = []
     filenames = []
     for f in files:
@@ -211,18 +260,24 @@ async def download(files: list[UploadFile] = File(...)):
         data["filename"] = f.filename
         invoices.append(data)
         filenames.append(Path(f.filename).stem)
+
     excel_bytes = build_excel(invoices)
-    out_name = filenames[0] + "_extracted.xlsx" if len(filenames) == 1 else "invoices_extracted.xlsx"
+    out_name = filenames[0] + "_extracted.xlsx" if len(filenames) == 1 \
+               else "invoices_extracted.xlsx"
+
     return StreamingResponse(
         io.BytesIO(excel_bytes),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{out_name}"'},
     )
 
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
+
+# Serve static frontend
 static_path = Path(__file__).parent / "static"
 if static_path.exists():
     app.mount("/", StaticFiles(directory=str(static_path), html=True), name="static")
