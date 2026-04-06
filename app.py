@@ -182,7 +182,18 @@ async def extract(files: list[UploadFile] = File(...)):
         text = extract_pdf_text(pdf_bytes)
         if not text.strip():
             raise HTTPException(status_code=422, detail=f"{f.filename} appears to be a scanned image PDF with no extractable text")
-        data = extract_invoice_data(text)
+        try:
+            data = extract_invoice_data(text)
+        except anthropic.BadRequestError as e:
+            err = str(e)
+            if "credit balance" in err or "too low" in err:
+                raise HTTPException(status_code=402,
+                    detail="API credits exhausted. Please contact support.")
+            raise HTTPException(status_code=400, detail=f"AI extraction failed: {err}")
+        except anthropic.AuthenticationError:
+            raise HTTPException(status_code=500, detail="API authentication error.")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
         data["filename"] = f.filename
         results.append(data)
     return JSONResponse(content={"invoices": results})
